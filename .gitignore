@@ -1,0 +1,14 @@
+# Packaged runtime. dist/package.sh stays tracked.
+dist/shellyHub/
+dist/*.tar.gz
+
+# Local caches and logs
+.cache/
+*.log
+
+# Editor and OS noise
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*~
