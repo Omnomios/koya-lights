@@ -2,6 +2,7 @@ import * as UI from 'Helix/UserInterface';
 import {THEME, TEXT, FONT, TYPE} from '../theme.js';
 import {cursorEnter, cursorExit} from './cursor.js';
 import {play} from './juice.js';
+import {bindValueDrag, setHover} from './input.js';
 
 function clamp (value, min, max) {
   return Math.max(min, Math.min(max, value));
@@ -18,6 +19,7 @@ export async function createSlider (win, parentId, {
   onChange,
   onDragStart,
   onDragEnd,
+  onDragCancel,
 }) {
   const trackHeight = 6;
   const thumbSize = 16;
@@ -157,38 +159,39 @@ export async function createSlider (win, parentId, {
 
   await applyVisual();
 
-  await UI.setOnMouseDown(win, trackShell, (_wp, localPoint) => {
-    dragging = true;
-    if (typeof onDragStart === 'function') onDragStart();
-    current = valueFromPoint(localPoint);
-    applyVisual().then(() => {
+  let startValue = current;
+  await bindValueDrag(win, trackShell, {
+    onStart: () => {
+      startValue = current;
+      dragging = true;
+      if (typeof onDragStart === 'function') onDragStart();
+    },
+    onChange: (localPoint) => {
+      current = valueFromPoint(localPoint);
       if (typeof onChange === 'function') onChange(current);
-    });
-  });
-  await UI.setOnMouseMove(win, trackShell, (_wp, localPoint) => {
-    if (!dragging) return;
-    current = valueFromPoint(localPoint);
-    applyVisual().then(() => {
+      applyVisual();
+    },
+    onEnd: () => {
+      dragging = false;
+      applyVisual({duration: 0.22});
+      if (typeof onDragEnd === 'function') onDragEnd(current);
+    },
+    onCancel: () => {
+      dragging = false;
+      current = startValue;
       if (typeof onChange === 'function') onChange(current);
-    });
+      applyVisual({duration: 0.22});
+      if (typeof onDragCancel === 'function') onDragCancel();
+    },
   });
-  const endDrag = () => {
-    if (!dragging) return;
-    dragging = false;
-    applyVisual({duration: 0.22});
-    if (typeof onDragEnd === 'function') onDragEnd(current);
-  };
-  await UI.setOnMouseUp(win, trackShell, endDrag);
-  await UI.setOnMouseEnter(win, trackShell, () => {
+  await setHover(win, trackShell, () => {
     hovered = true;
     cursorEnter(win, trackShell);
     if (!dragging) applyVisual({duration: 0.16});
-  });
-  await UI.setOnMouseExit(win, trackShell, () => {
+  }, () => {
     hovered = false;
     cursorExit(win, trackShell);
-    if (dragging) endDrag();
-    else applyVisual({duration: 0.2});
+    if (!dragging) applyVisual({duration: 0.2});
   });
 
   return {

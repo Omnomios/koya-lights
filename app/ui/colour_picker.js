@@ -6,6 +6,7 @@ import {createRenderQueue} from './render_queue.js';
 import {cursorEnter, cursorExit} from './cursor.js';
 import {centrePivot, play, pressPop, scaleTo} from './juice.js';
 import {LAYOUT, TEXT, THEME, TYPE} from '../theme.js';
+import {bindValueDrag, setHover} from './input.js';
 
 const CLOSE_SECONDS = 0.14;
 
@@ -94,8 +95,6 @@ export class ColourPickerModal {
     this.sat = 1;
     this.val = 1;
     this.alpha = 255;
-    this.svDragging = false;
-    this.hueDragging = false;
     this.regenerateSvBase = createRenderQueue(async () => {
       const {r, g, b} = hsvToRgb(this.hue, 1, 1);
       await Image.gradient(this.windowId, {
@@ -179,7 +178,7 @@ export class ColourPickerModal {
     await UI.attach(this.windowId, parentId, this.overlayId);
     await UI.setLayoutPosition(this.windowId, this.overlayId, {x: 0, y: 0});
     await this.widgets.captureUiPointer(this.overlayId);
-    await UI.setOnMouseDown(this.windowId, this.overlayId, () => {
+    await UI.setOnActivate(this.windowId, this.overlayId, () => {
       this.close().catch(() => {});
     });
 
@@ -201,7 +200,7 @@ export class ColourPickerModal {
     await UI.attach(this.windowId, this.overlayId, this.panelId);
     await centrePivot(this.windowId, this.panelId);
     await this.positionPanel();
-    await UI.setOnMouseDown(this.windowId, this.panelId, () => {});
+    await UI.setOnActivate(this.windowId, this.panelId, () => {});
 
     const innerWidth = this.svWidth();
     const headerRowId = await UI.createElement(this.windowId, {
@@ -289,21 +288,12 @@ export class ColourPickerModal {
       this.val = SV_HEIGHT <= 0 ? 0 : 1 - (y / SV_HEIGHT);
       this.syncFromHsv().catch(() => {});
     };
-    await UI.setOnMouseDown(this.windowId, this.svShellId, (_windowPoint, localPoint) => {
-      this.svDragging = true;
-      updateFromPoint(localPoint);
+    await bindValueDrag(this.windowId, this.svShellId, {
+      onChange: updateFromPoint,
     });
-    await UI.setOnMouseMove(this.windowId, this.svShellId, (_windowPoint, localPoint) => {
-      if (this.svDragging) updateFromPoint(localPoint);
-    });
-    await UI.setOnMouseUp(this.windowId, this.svShellId, () => {
-      this.svDragging = false;
-    });
-    await UI.setOnMouseEnter(this.windowId, this.svShellId, () => {
+    await setHover(this.windowId, this.svShellId, () => {
       cursorEnter(this.windowId, this.svShellId, 'crosshair');
-    });
-    await UI.setOnMouseExit(this.windowId, this.svShellId, () => {
-      this.svDragging = false;
+    }, () => {
       cursorExit(this.windowId, this.svShellId);
     });
   }
@@ -345,21 +335,12 @@ export class ColourPickerModal {
       this.hue = width <= 0 ? 0 : clamp((x / width) * 360, 0, 359.999);
       this.syncFromHsv({hueChanged: true}).catch(() => {});
     };
-    await UI.setOnMouseDown(this.windowId, this.hueShellId, (_windowPoint, localPoint) => {
-      this.hueDragging = true;
-      updateFromPoint(localPoint);
+    await bindValueDrag(this.windowId, this.hueShellId, {
+      onChange: updateFromPoint,
     });
-    await UI.setOnMouseMove(this.windowId, this.hueShellId, (_windowPoint, localPoint) => {
-      if (this.hueDragging) updateFromPoint(localPoint);
-    });
-    await UI.setOnMouseUp(this.windowId, this.hueShellId, () => {
-      this.hueDragging = false;
-    });
-    await UI.setOnMouseEnter(this.windowId, this.hueShellId, () => {
+    await setHover(this.windowId, this.hueShellId, () => {
       cursorEnter(this.windowId, this.hueShellId, 'crosshair');
-    });
-    await UI.setOnMouseExit(this.windowId, this.hueShellId, () => {
-      this.hueDragging = false;
+    }, () => {
       cursorExit(this.windowId, this.hueShellId);
     });
   }
@@ -439,17 +420,16 @@ export class ColourPickerModal {
       await UI.attach(this.windowId, shellId, borderId);
       await UI.setHitTarget(this.windowId, borderId, false);
 
-      await UI.setOnMouseEnter(this.windowId, shellId, () => {
+      await setHover(this.windowId, shellId, () => {
         cursorEnter(this.windowId, shellId);
         scaleTo(this.windowId, shellId, 1.08);
         UI.setBoxColour(this.windowId, borderId, THEME.accent).catch(() => {});
-      });
-      await UI.setOnMouseExit(this.windowId, shellId, () => {
+      }, () => {
         cursorExit(this.windowId, shellId);
         scaleTo(this.windowId, shellId, 1, 0.18);
         UI.setBoxColour(this.windowId, borderId, THEME.swatchBorder).catch(() => {});
       });
-      await UI.setOnMouseDown(this.windowId, shellId, () => {
+      await UI.setOnActivate(this.windowId, shellId, () => {
         pressPop(this.windowId, shellId, {rest: 1.08});
         this.applyRgb(r, g, b);
       });
@@ -632,8 +612,6 @@ export class ColourPickerModal {
     this.sat = s;
     this.val = v;
     this.alpha = clampChannel(a);
-    this.svDragging = false;
-    this.hueDragging = false;
     await this.syncFromHsv({hueChanged: true});
     const wasVisible = this.visible;
     await this.setVisible(true);
@@ -642,8 +620,6 @@ export class ColourPickerModal {
 
   async close () {
     this.onPick = null;
-    this.svDragging = false;
-    this.hueDragging = false;
     if (this.visible) this.playClose();
   }
 

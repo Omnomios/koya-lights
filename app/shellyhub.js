@@ -12,9 +12,11 @@ import {resetCursor} from './ui/cursor.js';
 
 export default function main () {
   Log.info('[shellyHub] main()');
-  (async () => {
+  // Koya does not run timers until bootstrap finishes. UI setup and device
+  // discovery both await timers, so start them once the engine is running.
+  Event.on('ready', async () => {
     try {
-      const displays = await Compositor.listDisplays();
+      const displays = await Compositor.listDisplays({backend: 'wayland'});
       const display = displays.length > 0 ? displays[0].display : '';
       const win = await Compositor.createWindow({
         role: 'window',
@@ -102,9 +104,7 @@ export default function main () {
       Log.info('[shellyHub] ready');
     } catch (error) {
       Log.error('[shellyHub] bootstrap failed: ' + error);
-      try {
-        Engine.quit();
-      } catch (_) {}
+      Engine.quit();
     }
-  })();
+  });
 }

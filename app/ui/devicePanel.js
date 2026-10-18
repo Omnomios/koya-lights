@@ -5,6 +5,7 @@ import {createSlider} from './slider.js';
 import {createToggle} from './toggle.js';
 import {cursorEnter, cursorExit} from './cursor.js';
 import {breathe, createShockwave, pressPop, punch, scaleTo, settle, transformHost} from './juice.js';
+import {setHover} from './input.js';
 
 export const DEVICE_PANEL_HEIGHT = 300;
 const SWATCH_HOVER_SCALE = 1.05;
@@ -198,6 +199,7 @@ export async function createDevicePanel (win, parentId, {
     value: device?.brightness ?? 100,
     format: (v) => `${Math.round(v)}%`,
     onDragStart: () => store.setDragging(deviceId, true),
+    onDragCancel: () => store.setDragging(deviceId, false),
     onChange: (v) => {
       const d = store.get(deviceId);
       if (d) d.brightness = Math.round(v);
@@ -216,6 +218,7 @@ export async function createDevicePanel (win, parentId, {
     value: device?.white ?? 0,
     fillColour: [0.85, 0.88, 0.92, 1],
     onDragStart: () => store.setDragging(deviceId, true),
+    onDragCancel: () => store.setDragging(deviceId, false),
     onChange: (v) => {
       const d = store.get(deviceId);
       if (d) d.white = Math.round(v);
@@ -227,19 +230,18 @@ export async function createDevicePanel (win, parentId, {
   });
 
   let swatchHovered = false;
-  await UI.setOnMouseEnter(win, swatchShell, () => {
+  await setHover(win, swatchShell, () => {
     swatchHovered = true;
     UI.setCircleColour(win, ringId, THEME.accent).catch(() => {});
     cursorEnter(win, swatchShell);
     scaleTo(win, swatchShell, SWATCH_HOVER_SCALE);
-  });
-  await UI.setOnMouseExit(win, swatchShell, () => {
+  }, () => {
     swatchHovered = false;
     UI.setCircleColour(win, ringId, THEME.borderStrong).catch(() => {});
     cursorExit(win, swatchShell);
     scaleTo(win, swatchShell, 1, 0.2);
   });
-  await UI.setOnMouseDown(win, swatchShell, () => {
+  await UI.setOnActivate(win, swatchShell, () => {
     pressPop(win, swatchShell, {rest: swatchHovered ? SWATCH_HOVER_SCALE : 1});
     const d = store.get(deviceId);
     if (!d) return;

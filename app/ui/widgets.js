@@ -5,6 +5,7 @@ import {InputText} from '/rom/std/koya-controls.js';
 import {FONT, LAYOUT, TEXT, TEXT_RGBA, THEME, TYPE} from '../theme.js';
 import {cursorEnter, cursorExit, useCursor} from './cursor.js';
 import {pressPop, scaleTo, transformHost, play} from './juice.js';
+import {bindValueDrag, scrollDelta, setHover} from './input.js';
 
 const HOVER_SCALE = 1.04;
 
@@ -220,19 +221,18 @@ export class UiWidgets {
       UI.setHitTarget(this.windowId, borderId, false),
       UI.setHitTarget(this.windowId, labelId, false),
       this.captureUiPointer(shellId),
-      UI.setOnMouseEnter(this.windowId, shellId, async () => {
+      setHover(this.windowId, shellId, async () => {
         state.hovered = true;
         cursorEnter(this.windowId, shellId);
         scaleTo(this.windowId, shellId, HOVER_SCALE);
         if (!state.active) await applyVisual();
-      }),
-      UI.setOnMouseExit(this.windowId, shellId, async () => {
+      }, async () => {
         state.hovered = false;
         cursorExit(this.windowId, shellId);
         scaleTo(this.windowId, shellId, 1, 0.2);
         if (!state.active) await applyVisual();
       }),
-      UI.setOnMouseDown(this.windowId, shellId, () => {
+      UI.setOnActivate(this.windowId, shellId, () => {
         pressPop(this.windowId, shellId, {rest: state.hovered ? HOVER_SCALE : 1});
         if (typeof action === 'function') action();
       }),
@@ -278,8 +278,8 @@ export class UiWidgets {
     await this.captureUiPointer(fieldShell.id);
 
     let input = null;
-    await fieldShell.setOnMouseDown(async () => {
-      if (input) await input.focus();
+    await fieldShell.setOnPress(async (event) => {
+      if (event.phase === 'start' && input) await input.focus();
     });
     await useCursor(this.windowId, fieldShell.id, 'text');
 
@@ -340,6 +340,7 @@ export class UiWidgets {
     scrollStep = LAYOUT.scrollStep,
     smooth = true,
     smoothDuration = 0.2,
+    onScroll,
   }) {
     let safeWidth = Math.max(1, width);
     const safeHeight = Math.max(1, height);
@@ -393,7 +394,6 @@ export class UiWidgets {
       visual: 0,
       viewportHeight: safeHeight,
       contentHeight: safeHeight,
-      draggingScrollbar: false,
     };
 
     const scrollbarMetrics = () => {
@@ -464,16 +464,12 @@ export class UiWidgets {
       const thumbY = Math.max(0, Math.min(thumbTravel, pointY - (thumbHeight * 0.5)));
       setOffset((thumbY / thumbTravel) * maxScroll, {animate: false}).catch(() => {});
     };
-    const endScrollbarDrag = () => {
-      state.draggingScrollbar = false;
-    };
-    const onWheel = async (_windowPoint, _localPoint, delta) => {
-      const rawDelta = typeof delta === 'object' && delta !== null
-        ? Number(delta.y ?? delta.delta ?? delta.value)
-        : Number(delta);
-      if (!Number.isFinite(rawDelta) || rawDelta === 0) return;
+    const onWheel = async (event) => {
+      const delta = scrollDelta(event, step);
+      if (delta === 0) return;
+      if (typeof onScroll === 'function') await onScroll(event);
       // Stack onto the in-flight target so rapid ticks keep accelerating.
-      await setOffset(state.offset + (rawDelta * step), {animate: true});
+      await setOffset(state.offset + delta, {animate: true});
     };
 
     await Promise.all([
@@ -487,18 +483,11 @@ export class UiWidgets {
       scrollbarId ? UI.setHitTarget(this.windowId, scrollbarTrackId, false) : Promise.resolve(),
       scrollbarId ? UI.setHitTarget(this.windowId, scrollbarThumbId, false) : Promise.resolve(),
       scrollbarId ? this.captureUiPointer(scrollbarId) : Promise.resolve(),
-      scrollbarId ? UI.setOnMouseDown(this.windowId, scrollbarId, (_windowPoint, localPoint) => {
-        state.draggingScrollbar = true;
-        updateScrollbarFromPoint(localPoint);
+      scrollbarId ? bindValueDrag(this.windowId, scrollbarId, {
+        onChange: updateScrollbarFromPoint,
       }) : Promise.resolve(),
-      scrollbarId ? UI.setOnMouseMove(this.windowId, scrollbarId, (_windowPoint, localPoint) => {
-        if (state.draggingScrollbar) updateScrollbarFromPoint(localPoint);
-      }) : Promise.resolve(),
-      scrollbarId ? UI.setOnMouseUp(this.windowId, scrollbarId, endScrollbarDrag) : Promise.resolve(),
-      scrollbarId ? UI.setOnMouseExit(this.windowId, scrollbarId, endScrollbarDrag) : Promise.resolve(),
       this.captureUiPointer(viewportId),
-      UI.setOnMouseScroll(this.windowId, viewportId, onWheel),
-      UI.setOnMouseScroll(this.windowId, contentId, onWheel),
+      UI.setOnScroll(this.windowId, viewportId, onWheel),
     ]);
     await applyScrollbar();
 

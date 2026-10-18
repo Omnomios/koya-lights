@@ -1,5 +1,5 @@
-import * as UI from 'Helix/UserInterface';
 import * as Compositor from 'Koya/Compositor';
+import {setHover} from './input.js';
 
 // The cursor is per window, and enter/exit between adjacent controls can
 // arrive in either order, so only the element that set a shape may clear it.
@@ -28,6 +28,5 @@ export function resetCursor (win) {
 
 // For elements with no other hover handlers.
 export async function useCursor (win, id, shape = 'pointer') {
-  await UI.setOnMouseEnter(win, id, () => { cursorEnter(win, id, shape); });
-  await UI.setOnMouseExit(win, id, () => { cursorExit(win, id); });
+  await setHover(win, id, () => { cursorEnter(win, id, shape); }, () => { cursorExit(win, id); });
 }

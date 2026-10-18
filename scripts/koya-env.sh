@@ -1,33 +1,40 @@
-# Shared Koya binary / assets resolution for run.sh and dist/package.sh.
-# Packaging requires Koya 0.3.1+ (self-discovering appended ZIP + mountAdjacent).
-
-koya_is_packaging_capable() {
-  local bin="$1"
-  [[ -x "$bin" ]] || return 1
-  # 0.3.1+ exposes --default-mounts (ambient mounts off by default).
-  # Older builds expose --no-default-mounts instead.
-  "$bin" --help 2>&1 | grep -q -- '--default-mounts'
-}
+# Shared Koya runtime, assets and native-plugin resolution.
+KOYA_MIN_VERSION=0.7.1
 
 koya_version_line() {
-  local bin="$1"
-  "$bin" --help 2>&1 | head -n 1 || true
+  local output
+  # --help also works on old releases that treat --version as an app argument.
+  output="$("$1" --help 2>&1)" || return 1
+  printf '%s\n' "${output%%$'\n'*}"
+}
+
+koya_is_supported() {
+  local version
+  [[ -x "$1" ]] || return 1
+  version="$(koya_version_line "$1")"
+  [[ "$version" =~ ^Koya[[:space:]]+([0-9]+)\.([0-9]+)\.([0-9]+)([[:space:]]|$) ]] || return 1
+  local major="${BASH_REMATCH[1]}" minor="${BASH_REMATCH[2]}" patch="${BASH_REMATCH[3]}"
+  (( 10#$major > 0 || 10#$minor > 7 || (10#$minor == 7 && 10#$patch >= 1) ))
 }
 
 resolve_koya_bin() {
-  local require_packaging="${1:-0}"
-  local candidates=()
-  local home="${HOME:-}"
-  local c
-
+  local candidate
   if [[ -n "${KOYA_BIN:-}" ]]; then
-    candidates+=("$KOYA_BIN")
+    candidate="$(command -v -- "$KOYA_BIN" 2>/dev/null || true)"
+    if [[ -z "$candidate" ]] || ! koya_is_supported "$candidate"; then
+      echo "KOYA_BIN must point to Koya $KOYA_MIN_VERSION or newer: $KOYA_BIN" >&2
+      return 1
+    fi
+    printf '%s\n' "$candidate"
+    return 0
   fi
 
-  # Prefer local Helix/Koya monorepo builds (0.3.1 lives here on this machine).
-  candidates+=(
-    "$home/projects/helix/build/koya-base/koya"
-    "$home/projects/helix/koya-base/build/koya-base/koya"
+  local candidates=(
+    "$(command -v koya 2>/dev/null || true)"
+    /usr/local/bin/koya
+    /usr/bin/koya
+    "${HOME:-}/projects/helix/build/koya-base/koya"
+    "${HOME:-}/projects/helix/koya-base/build/koya-base/koya"
   )
   if [[ -n "${ROOT:-}" ]]; then
     candidates+=(
@@ -35,93 +42,84 @@ resolve_koya_bin() {
       "$ROOT/../helix/koya-base/build/koya-base/koya"
     )
   fi
-
-  candidates+=(
-    "$(command -v koya 2>/dev/null || true)"
-    /usr/local/bin/koya
-    /usr/bin/koya
-  )
-
-  local first_found=""
-  for c in "${candidates[@]}"; do
-    [[ -n "$c" && -x "$c" ]] || continue
-    if [[ -z "$first_found" ]]; then
-      first_found="$c"
-    fi
-    if koya_is_packaging_capable "$c"; then
-      printf '%s\n' "$c"
+  for candidate in "${candidates[@]}"; do
+    [[ -n "$candidate" ]] || continue
+    if koya_is_supported "$candidate"; then
+      printf '%s\n' "$candidate"
       return 0
     fi
   done
 
-  if [[ "$require_packaging" == "1" ]]; then
-    echo "Koya 0.3.1+ required for packaging (polyglot ZIP + mountAdjacent)." >&2
-    if [[ -n "$first_found" ]]; then
-      echo "Found incompatible runtime: $first_found ($(koya_version_line "$first_found"))" >&2
-    fi
-    echo "Build Koya from helix (…/build/koya-base/koya) or set KOYA_BIN to a 0.3.1+ binary." >&2
-    return 1
-  fi
+  echo "Koya $KOYA_MIN_VERSION or newer is required. Install it or set KOYA_BIN." >&2
+  echo "See https://developer.koya-ui.com/install/" >&2
+  return 1
+}
 
-  if [[ -n "$first_found" ]]; then
-    printf '%s\n' "$first_found"
-    return 0
-  fi
-
-  printf '%s\n' "koya"
-  return 0
+koya_bin_dir() {
+  dirname "$(readlink -f "$1")"
 }
 
 resolve_koya_assets() {
-  local bin="${1:-${KOYA_BIN:-}}"
-
   if [[ -n "${KOYA_ASSETS:-}" ]]; then
-    if [[ -d "$KOYA_ASSETS" ]]; then
+    if [[ -f "$KOYA_ASSETS/std/koya-ui.js" && -f "$KOYA_ASSETS/std/koya-controls.js" ]]; then
       (cd "$KOYA_ASSETS" && pwd)
       return 0
     fi
-    echo "KOYA_ASSETS is set but not a directory: $KOYA_ASSETS" >&2
+    echo "KOYA_ASSETS must contain the matching Koya standard library: $KOYA_ASSETS" >&2
     return 1
   fi
 
-  local bin_dir=""
-  if [[ -n "$bin" && -x "$bin" ]]; then
-    bin_dir="$(cd "$(dirname "$(readlink -f "$bin" 2>/dev/null || echo "$bin")")" && pwd)"
-  fi
-
-  local home="${HOME:-}"
-  local candidates=()
-  if [[ -n "$bin_dir" ]]; then
-    candidates+=(
-      "$bin_dir/assets"
-      "$bin_dir/../assets"
-      "$bin_dir/../../assets"
-      "$bin_dir/../share/koya"
-      "$bin_dir/../../share/koya"
-      "$bin_dir/../koya-base/assets"
-      "$bin_dir/../../koya-base/assets"
-      "$bin_dir/../../../koya-base/assets"
-    )
-  fi
-  candidates+=(
-    "$home/projects/helix/koya-base/assets"
-    /usr/local/share/koya
-    /usr/share/koya
+  local bin_dir candidate
+  bin_dir="$(koya_bin_dir "$1")"
+  local candidates=(
+    "$bin_dir/assets"
+    "$bin_dir/../assets"
+    "$bin_dir/../share/koya/assets"
+    "$bin_dir/../share/koya"
+    "$bin_dir/../../share/koya/assets"
+    "$bin_dir/../../share/koya"
+    "$bin_dir/../../koya-base/assets"
+    "$bin_dir/../../../koya-base/assets"
   )
-
-  local c
-  for c in "${candidates[@]}"; do
-    [[ -d "$c" ]] || continue
-    if [[ -d "$c/shaders" || -d "$c/fonts" || -d "$c/std" ]]; then
-      # Prefer trees that actually contain shader binaries / fonts.
-      if compgen -G "$c/shaders/*.spv" >/dev/null 2>&1 || compgen -G "$c/fonts/*" >/dev/null 2>&1 || [[ -d "$c/std" ]]; then
-        (cd "$c" && pwd)
-        return 0
-      fi
+  for candidate in "${candidates[@]}"; do
+    if [[ -f "$candidate/std/koya-ui.js" && -f "$candidate/std/koya-controls.js" ]]; then
+      (cd "$candidate" && pwd)
+      return 0
     fi
   done
 
-  echo "Koya assets folder not found (needed for shaders/fonts)." >&2
-  echo "Set KOYA_ASSETS to the Koya assets directory (e.g. …/koya-base/assets)." >&2
+  echo "Matching Koya assets not found. Set KOYA_ASSETS to this runtime's assets directory." >&2
+  return 1
+}
+
+resolve_koya_plugins() {
+  local bin_dir candidate plugin complete
+  bin_dir="$(koya_bin_dir "$1")"
+  local candidates=()
+  if [[ -n "${SHELLYHUB_PLUGINS:-}" ]]; then
+    candidates+=("$SHELLYHUB_PLUGINS")
+  else
+    candidates+=(
+      "$bin_dir"
+      "$bin_dir/../helix-plugin"
+      "$bin_dir/../lib"
+      "$bin_dir/../lib64"
+      "$bin_dir/../lib/$(uname -m)-linux-gnu"
+    )
+  fi
+  for candidate in "${candidates[@]}"; do
+    complete=1
+    for plugin in http ws process; do
+      [[ -f "$candidate/libhx-$plugin.so" ]] || complete=0
+    done
+    if (( complete )); then
+      (cd "$candidate" && pwd)
+      return 0
+    fi
+  done
+
+  echo "Matching HTTP, WebSocket and Process plugins not found." >&2
+  echo "Install helix-plugin-http, helix-plugin-ws and helix-plugin-process for this Koya release," >&2
+  echo "or set SHELLYHUB_PLUGINS to the directory containing their libhx-*.so files." >&2
   return 1
 }

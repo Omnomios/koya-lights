@@ -1,7 +1,7 @@
 export const DEVICES = [
-  {id: 'light1', ip: '192.168.20.117'},
-  {id: 'light2', ip: '192.168.20.85'},
-  {id: 'light3', ip: '192.168.20.68'},
+  {id: 'light1', ip: '192.168.50.107'},
+  {id: 'light2', ip: '192.168.50.177'},
+  {id: 'light3', ip: '192.168.50.119'},
 ];
 
 export const POLL_MS = 2000;

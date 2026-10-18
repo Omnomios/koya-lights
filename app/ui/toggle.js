@@ -2,6 +2,7 @@ import * as UI from 'Helix/UserInterface';
 import {THEME} from '../theme.js';
 import {cursorEnter, cursorExit} from './cursor.js';
 import {play, pressPop, scaleTo, transformHost} from './juice.js';
+import {setHover} from './input.js';
 
 const HOVER_SCALE = 1.06;
 
@@ -59,16 +60,15 @@ export async function createToggle (win, parentId, {width = 44, height = 24, onC
   let hovered = false;
   let state = null;
 
-  await UI.setOnMouseDown(win, shellId, () => {
+  await UI.setOnActivate(win, shellId, () => {
     pressPop(win, shellId, {rest: hovered ? HOVER_SCALE : 1, squash: 0.88, overshoot: 1.1});
     if (typeof onClick === 'function') onClick();
   });
-  await UI.setOnMouseEnter(win, shellId, () => {
+  await setHover(win, shellId, () => {
     hovered = true;
     cursorEnter(win, shellId);
     scaleTo(win, shellId, HOVER_SCALE);
-  });
-  await UI.setOnMouseExit(win, shellId, () => {
+  }, () => {
     hovered = false;
     cursorExit(win, shellId);
     scaleTo(win, shellId, 1, 0.2);

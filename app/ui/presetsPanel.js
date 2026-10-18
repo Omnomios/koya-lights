@@ -2,6 +2,7 @@ import * as UI from 'Helix/UserInterface';
 import {FONT, LAYOUT, TEXT, THEME, TRACK, TYPE, lightTint} from '../theme.js';
 import {createCard} from './widgets.js';
 import {cursorEnter, cursorExit} from './cursor.js';
+import {setHover} from './input.js';
 
 const ROW_HEIGHT = 38;
 const DOT = 12;
@@ -87,6 +88,7 @@ export async function createPresetsPanel (win, parentId, {
     scrollStep: ROW_HEIGHT / 2,
     smooth: true,
     smoothDuration: 0.2,
+    onScroll: () => finishEdit(),
   });
 
   const rows = new Map();
@@ -194,9 +196,8 @@ export async function createPresetsPanel (win, parentId, {
     await UI.attach(win, nameShell, nameId);
     await UI.setHitTarget(win, nameId, false);
 
-    await UI.setOnMouseEnter(win, nameShell, () => cursorEnter(win, nameShell));
-    await UI.setOnMouseExit(win, nameShell, () => cursorExit(win, nameShell));
-    await UI.setOnMouseDown(win, nameShell, async () => {
+    await setHover(win, nameShell, () => cursorEnter(win, nameShell), () => cursorExit(win, nameShell));
+    await UI.setOnActivate(win, nameShell, async () => {
       await finishEdit();
       await UI.setEnabled(win, nameId, false);
       let finished = false;
@@ -245,26 +246,15 @@ export async function createPresetsPanel (win, parentId, {
       },
     });
 
-    await UI.setOnMouseDown(win, hitId, () => {
+    await UI.setOnActivate(win, hitId, () => {
       store.applyPreset(preset.id).catch(() => {});
     });
-    await UI.setOnMouseEnter(win, hitId, () => {
+    await setHover(win, hitId, () => {
       cursorEnter(win, hitId);
       UI.setBoxColour(win, bgId, THEME.buttonHover).catch(() => {});
-    });
-    await UI.setOnMouseExit(win, hitId, () => {
+    }, () => {
       cursorExit(win, hitId);
       UI.setBoxColour(win, bgId, THEME.button).catch(() => {});
-    });
-
-    // Finish rename if the user scrolls the list.
-    await UI.setOnMouseScroll(win, hitId, async (_w, _l, delta) => {
-      await finishEdit();
-      const rawDelta = typeof delta === 'object' && delta !== null
-        ? Number(delta.y ?? delta.delta ?? delta.value)
-        : Number(delta);
-      if (!Number.isFinite(rawDelta) || rawDelta === 0) return;
-      await scroll.setOffset(scroll.offset + (rawDelta * (ROW_HEIGHT / 2)));
     });
 
     return {rootId, bgId, nameId, dotIds, name: preset.name};
